@@ -156,7 +156,8 @@ If this codebase is useful to you, please consider citing:
 
 [FC-CLIP](https://github.com/bytedance/fc-clip)
 
-###Memo
+### Memo
+
 $module purge
 
 $module load cuda/11.6.2/gcc/9.4.0/zen2

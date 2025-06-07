@@ -4,6 +4,7 @@ All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its aff
 
 Reference: https://github.com/facebookresearch/Mask2Former/blob/main/demo/predictor.py
 """
+
 import atexit
 import bisect
 import multiprocessing as mp
@@ -13,7 +14,6 @@ import cv2
 import torch
 import itertools
 import numpy as np
-import json
 
 from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.engine.defaults import DefaultPredictor as d2_defaultPredictor
@@ -157,87 +157,81 @@ class VisualizationDemo(object):
         # thing_colors = user_colors + coco_thing_colors + ade20k_thing_colors + lvis_colors
 
         # test
-        # user_classes = open("./maft/data/datasets/lvis_1203_with_prompt_eng.txt", 'r').read().splitlines()
-        # user_classes = [x[x.find(':')+1:] for x in user_classes]
-        # user_classes = ["keyboard and mouse"]
+        user_classes = open("./maft/data/datasets/lvis_1203_with_prompt_eng.txt", 'r').read().splitlines()
+        user_classes = [x[x.find(':')+1:] for x in user_classes]
+        user_classes = ["keyboard and mouse"]
+        #user_classes = open("./sample.txt", 'r').read().splitlines()
+        #user_classes = [x[x.find(':')+1:] for x in user_classes]
 
-        # thing_dataset_id_to_contiguous_id = {x: x for x in range(len(user_classes))}
-        # DatasetCatalog.register(
-        #     "openvocab_dataset", lambda x: []
-        # )
-        # self.metadata = MetadataCatalog.get("openvocab_dataset").set(
-        #     stuff_classes=user_classes,
-        #     stuff_colors=[np.random.randint(256, size=3).tolist() for _ in range(len(user_classes))],
-        #     thing_dataset_id_to_contiguous_id=thing_dataset_id_to_contiguous_id,
-        # )
+        thing_dataset_id_to_contiguous_id = {x: x for x in range(len(user_classes))}
+        DatasetCatalog.register(
+            "openvocab_dataset", lambda x: []
+        )
+        self.metadata = MetadataCatalog.get("openvocab_dataset").set(
+            stuff_classes=user_classes,
+            stuff_colors=[np.random.randint(256, size=3).tolist() for _ in range(len(user_classes))],
+            thing_dataset_id_to_contiguous_id=thing_dataset_id_to_contiguous_id,
+        )
         #print("self.metadata:", self.metadata)
-        
         self.cpu_device = torch.device("cpu")
         self.instance_mode = instance_mode
-        self.parallel = parallel
 
+        self.parallel = parallel
         if parallel:
             num_gpu = torch.cuda.device_count()
             self.predictor = AsyncPredictor(cfg, num_gpus=num_gpu)
         else:
             self.predictor = DefaultPredictor(cfg)
-
-        self.metadata = None  # will be assigned per image
-        # self.predictor.set_metadata(...) is done dynamically in run_on_image()
-
-    def run_on_image(self, image, user_classes):
-        """
-        Args:
-            image (np.ndarray): BGR image
-            user_classes (List[str]): e.g., ["dog and person"]
-
-        Returns:
-            predictions, vis_output, pooled_score_map
-        """
-        from detectron2.data import MetadataCatalog, DatasetCatalog
-
-        # Create a unique dataset name using command string hash
-        dataset_name = f"openvocab_dynamic_{abs(hash(user_classes[0])) % 10**8}"
-
-        if dataset_name not in MetadataCatalog.list():
-            DatasetCatalog.register(dataset_name, lambda: [])
-            MetadataCatalog.get(dataset_name).set(
-                stuff_classes=user_classes,
-                stuff_colors=[[255, 0, 0]],
-                thing_dataset_id_to_contiguous_id={0: 0}
-            )
-
-        self.metadata = MetadataCatalog.get(dataset_name)
         self.predictor.set_metadata(self.metadata)
 
+    def run_on_image(self, image):
+        """
+        Args:
+            image (np.ndarray): an image of shape (H, W, C) (in BGR order).
+                This is the format used by OpenCV.
+        Returns:
+            predictions (dict): the output of the model.
+            vis_output (VisImage): the visualized image output.
+        """
+        vis_output = None
+        pdb.set_trace()
         predictions = self.predictor(image)
-        image_rgb = image[:, :, ::-1]
-        visualizer = OpenVocabVisualizer(image_rgb, self.metadata, instance_mode=self.instance_mode)
+        # Convert image from OpenCV BGR format to Matplotlib RGB format.
+        image = image[:, :, ::-1]
+        visualizer = OpenVocabVisualizer(image, self.metadata, instance_mode=self.instance_mode)
+        # visualizer = OpenVocabVisualizer(image, self.metadata, instance_mode=self.instance_mode)
+        if "panoptic_seg" in predictions:
+            panoptic_seg, segments_info = predictions["panoptic_seg"]
+            vis_output = visualizer.draw_panoptic_seg(
+                panoptic_seg.to(self.cpu_device), segments_info
+            )
+        else:
+            #if "sem_seg" in predictions:
+            #    vis_output = visualizer.draw_sem_seg(
+            #        predictions["sem_seg"].argmax(dim=0).to(self.cpu_device)
+            #    )
+            if "sem_seg" in predictions:
+                sem_seg = predictions["sem_seg"].to(self.cpu_device)  # shape: [C, H, W]
 
-        pooled_score_map = None
+                # Since you only have one class, sem_seg[0] is the score map for that class
+                score_map = sem_seg[0]  # shape: [H, W]
 
-        if "sem_seg" in predictions:
-            sem_seg = predictions["sem_seg"].to(self.cpu_device)  # shape: [C, H, W]
-            score_map = sem_seg[0]  # Only one class, take channel 0
+                # Apply threshold
+                confidence_threshold = 0.6  # tune this value as needed
+                mask = score_map > confidence_threshold  # boolean mask [H, W]
 
-            # 2. Apply 8×8 adaptive average pooling
-            import torch.nn.functional as F
-            pooled = F.adaptive_avg_pool2d(score_map.unsqueeze(0).unsqueeze(0), (8, 8))
-            pooled_score_map = pooled.squeeze().cpu().numpy()
+                # Create a segmentation map with only this class shown where mask is True
+                # Otherwise fill with 255 (usually treated as "ignore")
+                height, width = score_map.shape
+                segmentation = torch.full((height, width), 255, dtype=torch.uint8)  # 255 = ignore
+                segmentation[mask] = 0  # your only class index is 0
 
-            # 3. Threshold and create binary mask for visualization
-            confidence_threshold = 0.6
-            mask = score_map > confidence_threshold
-            height, width = score_map.shape
-            segmentation = torch.full((height, width), 255, dtype=torch.uint8)
-            segmentation[mask] = 0  # 0 is the index of your only class
-            vis_output = visualizer.draw_sem_seg(segmentation)
+                vis_output = visualizer.draw_sem_seg(segmentation)
+            if "instances" in predictions:
+                instances = predictions["instances"].to(self.cpu_device)
+                vis_output = visualizer.draw_instance_predictions(predictions=instances)
 
-        if "instances" in predictions:
-            instances = predictions["instances"].to(self.cpu_device)
-            vis_output = visualizer.draw_instance_predictions(predictions=instances)
-
-        return predictions, vis_output, pooled_score_map
+        return predictions, vis_output
 
     def _frame_from_video(self, video):
         while video.isOpened():
