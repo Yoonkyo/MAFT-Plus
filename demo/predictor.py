@@ -160,6 +160,7 @@ class VisualizationDemo(object):
         # user_classes = open("./maft/data/datasets/lvis_1203_with_prompt_eng.txt", 'r').read().splitlines()
         # user_classes = [x[x.find(':')+1:] for x in user_classes]
         # user_classes = ["keyboard and mouse"]
+        # user_classes = ["dog and person"]
 
         # thing_dataset_id_to_contiguous_id = {x: x for x in range(len(user_classes))}
         # DatasetCatalog.register(
