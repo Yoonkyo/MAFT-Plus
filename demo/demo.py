@@ -45,6 +45,7 @@ from random import shuffle
 from PIL import Image
 
 from pycocotools.coco import COCO
+from ResSelectionAlg import A_to_R
 
 # Set up paths
 dataDir = "./data/coco/"
