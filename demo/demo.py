@@ -46,6 +46,7 @@ from PIL import Image
 
 from pycocotools.coco import COCO
 from ResSelectionAlg import A_to_R
+from EncoderDecoder import PatchCodecManager, images_to_patches, patches_to_images
 
 # Set up paths
 dataDir = "./data/coco/"
