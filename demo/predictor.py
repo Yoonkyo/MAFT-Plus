@@ -19,6 +19,7 @@ from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.engine.defaults import DefaultPredictor as d2_defaultPredictor
 from detectron2.utils.video_visualizer import VideoVisualizer
 from detectron2.utils.visualizer import ColorMode, Visualizer, random_color
+import torch.nn.functional as F
 import detectron2.utils.visualizer as d2_visualizer
 import pdb
 
@@ -185,18 +186,18 @@ class VisualizationDemo(object):
         self.metadata = None  # will be assigned per image
         # self.predictor.set_metadata(...) is done dynamically in run_on_image()
 
-    def run_on_image(self, image, user_classes):
+    def run_on_image(self, image, user_classes, image_size=None):
         """
         Args:
             image (np.ndarray): BGR image
             user_classes (List[str]): e.g., ["dog and person"]
+            image_size (Tuple[int, int]): (height, width) of the original image in pixels
 
         Returns:
             predictions, vis_output, pooled_score_map
         """
-        from detectron2.data import MetadataCatalog, DatasetCatalog
 
-        # Create a unique dataset name using command string hash
+        # Unique dataset name to avoid collision
         dataset_name = f"openvocab_dynamic_{abs(hash(user_classes[0])) % 10**8}"
 
         if dataset_name not in MetadataCatalog.list():
@@ -218,19 +219,23 @@ class VisualizationDemo(object):
 
         if "sem_seg" in predictions:
             sem_seg = predictions["sem_seg"].to(self.cpu_device)  # shape: [C, H, W]
-            score_map = sem_seg[0]  # Only one class, take channel 0
+            score_map = sem_seg[0]
 
-            # 2. Apply 8×8 adaptive average pooling
-            import torch.nn.functional as F
-            pooled = F.adaptive_avg_pool2d(score_map.unsqueeze(0).unsqueeze(0), (8, 8))
-            pooled_score_map = pooled.squeeze().cpu().numpy()
+            if image_size is not None:
+                W, H = image_size  # (height, width)
+                grid_H = H // 8
+                grid_W = W // 8
+                pooled = F.adaptive_avg_pool2d(score_map.unsqueeze(0).unsqueeze(0), (grid_H, grid_W))
+                pooled_score_map = pooled.squeeze().cpu().numpy()
+            else:
+                pooled_score_map = score_map.mean().item()
 
-            # 3. Threshold and create binary mask for visualization
+            # Visual threshold mask
             confidence_threshold = 0.6
             mask = score_map > confidence_threshold
             height, width = score_map.shape
             segmentation = torch.full((height, width), 255, dtype=torch.uint8)
-            segmentation[mask] = 0  # 0 is the index of your only class
+            segmentation[mask] = 0
             vis_output = visualizer.draw_sem_seg(segmentation)
 
         if "instances" in predictions:

@@ -136,8 +136,9 @@ if __name__ == "__main__":
 
     demo = VisualizationDemo(cfg)
     
-    # ---- Single image test for image_id = 494869 ----
+    # ---- Single image test ----
     image_id = 494869
+    #image_id = 50145 # size [480, 320]
     json_path = os.path.join(dataDir, "custom_coco_all.json")
 
     # Load JSON annotations
@@ -148,14 +149,20 @@ if __name__ == "__main__":
     img_entry = coco_data[str(image_id)]
     file_name = img_entry["file_name"]
     command = img_entry["command"]
+#    image_size = img_entry["imagesize"] # [width, height]
     image_path = os.path.join(imageDir, file_name)
 
     # Load image
     image = read_image(image_path, format="BGR")
 
+    # Resize the image
+    fixed_size = [320, 480]  # [H, W]
+    image = cv2.resize(image, (fixed_size[1], fixed_size[0]))  # (480, 320)
+    image_size = [fixed_size[1], fixed_size[0]]  # [W, H] = [480, 320]
+
     # Run inference and visualization
     user_classes = [command]
-    predictions, vis_output, pooled_map = demo.run_on_image(image, user_classes)
+    predictions, vis_output, pooled_map = demo.run_on_image(image, user_classes, image_size=image_size)
 
     # Log the prediction
     logger.info(
@@ -179,3 +186,7 @@ if __name__ == "__main__":
     if pooled_map is not None:
         print("8x8 pooled attention map:")
         print(np.round(pooled_map, 3))
+        # Save the pooled map
+        pooled_output_path = os.path.join(args.output, f"{filename}_attn.npy")
+        np.save(pooled_output_path, pooled_map)
+        logger.info(f"Saved pooled attention map to: {pooled_output_path}")
