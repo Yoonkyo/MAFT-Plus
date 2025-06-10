@@ -106,6 +106,8 @@ class PatchCodecManager:
         """
         Encode and decode a batch of patches using a specific model.
         """
+        if encoded_size == 196:
+            return patches # full resolution
         model = self.models.get(encoded_size)
         if model is None:
             raise ValueError(f"No model found for encoded size {encoded_size}")

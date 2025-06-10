@@ -21,6 +21,7 @@ import warnings
 
 import cv2
 import numpy as np
+import torch
 import tqdm
 
 from detectron2.config import get_cfg
@@ -49,7 +50,7 @@ from ResSelectionAlg import A_to_R
 from EncoderDecoder import PatchCodecManager, images_to_patches, patches_to_images
 
 # Set up paths
-dataDir = "./data/coco/"
+dataDir = "./demo/"
 dataType='val2017'
 imageDir = '{}{}/'.format(dataDir, dataType)
 
@@ -190,3 +191,54 @@ if __name__ == "__main__":
         pooled_output_path = os.path.join(args.output, f"{filename}_attn.npy")
         np.save(pooled_output_path, pooled_map)
         logger.info(f"Saved pooled attention map to: {pooled_output_path}")
+
+    # Select Resolution
+    r = 2400*100
+    res_map = A_to_R(pooled_map, r)
+
+    # plt.figure(figsize=(10, 6))
+    # sns.heatmap(res_map, cmap="YlOrRd", cbar=True, linewidths=0.1, linecolor='gray',xticklabels=False, yticklabels=False, square=True)
+    # plt.title("Resolution Level Map")
+    # plt.tight_layout()
+    # plt.savefig(os.path.join(args.output, f"{filename}_resmap.png"))
+    # plt.close()
+    # logger.info(f"Saved resolution map heatmap to: {filename}_resmap.png")
+
+    codec = PatchCodecManager(patch_size=8, input_channels=3, device="cuda")
+
+    # Convert image to tensor format: [1, 3, H, W]
+    image_tensor = torch.from_numpy(image.transpose(2, 0, 1)).unsqueeze(0).float() / 255.0
+    image_tensor = image_tensor.to("cuda")  # or your device
+
+    patches = images_to_patches(image_tensor, patch_size=8)  # [2400, 3, 8, 8]
+    decoded_patches = torch.zeros_like(patches)
+
+    # Flatten res_map to match patch order
+    res_levels = res_map.flatten()
+
+    # Mapping resolution levels to encoded_size
+    res_to_bits = {1: 12, 2: 24, 3: 48, 4: 196}
+        
+    for level in [1, 2, 3, 4]:
+        bit = res_to_bits[level]
+        idxs = (res_levels == level).nonzero()[0]  # indices of patches with this level
+        if len(idxs) == 0:
+            continue
+        selected = patches[idxs]
+        decoded = codec.encode_decode(selected, encoded_size=bit)
+        decoded_patches[idxs] = decoded
+
+    recon = patches_to_images(decoded_patches, image_tensor.shape, patch_size=8)
+    recon_image = (
+        recon.squeeze()
+        .clamp(0, 1)
+        .detach()             
+        .cpu()
+        .numpy()
+        .transpose(1, 2, 0) * 255
+    ).astype(np.uint8)
+    recon_path = os.path.join(args.output, f"{filename}_recon.jpg")
+#    cv2.imwrite(recon_path, cv2.cvtColor(recon_image, cv2.COLOR_RGB2BGR))
+    cv2.imwrite(recon_path, recon_image)
+    logger.info(f"Saved reconstructed image to: {recon_path}")
+
