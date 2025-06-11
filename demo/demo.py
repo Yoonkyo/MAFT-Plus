@@ -208,10 +208,10 @@ if __name__ == "__main__":
 
         # Save or display results
         filename = os.path.splitext(os.path.basename(image_path))[0]
-        #output_path = os.path.join(args.output, f"vis_{filename}.jpg")
-        #os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        #vis_output.save(output_path)
-        #logger.info(f"Saved visualized output to: {output_path}")
+        output_path = os.path.join(args.output, f"vis_{filename}.jpg")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        vis_output.save(output_path)
+        logger.info(f"Saved visualized output to: {output_path}")
 
         # Print pooled 8×8 score map
         if pooled_map is not None:
