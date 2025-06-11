@@ -88,26 +88,21 @@ def patches_to_images(patches, image_size, patch_size):
     images = patches.view(b, c, w, h)
     return images
 
-# Wrapper class to manage encoder/decoder models by resolution
+# Wrapper class to manage preloaded encoder/decoder models by resolution
 class PatchCodecManager:
-    def __init__(self, patch_size=8, input_channels=3, device="cuda"):
-        self.device = torch.device(device)
-        self.models = {}
-
-        for size in [3, 6, 12]:
-            model = CNNEncoderDecoder(input_channels=input_channels, patch_size=patch_size, encoded_size=size)
-            model_path = f"ResSel/SemanticModel/unet_{size}.pt"
-            model.load_state_dict(torch.load(model_path, map_location=self.device))
-            model.to(self.device)
-            model.eval()
-            self.models[size] = model
+    def __init__(self, model_dict):
+        """
+        Args:
+            model_dict (dict): Mapping from encoded_size (e.g., 3, 6, 12) to CNNEncoderDecoder models
+        """
+        self.models = model_dict
 
     def encode_decode(self, patches, encoded_size):
         """
         Encode and decode a batch of patches using a specific model.
         """
         if encoded_size == 196:
-            return patches # full resolution
+            return patches  # No compression for full resolution
         model = self.models.get(encoded_size)
         if model is None:
             raise ValueError(f"No model found for encoded size {encoded_size}")

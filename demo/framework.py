@@ -24,6 +24,7 @@ import cv2
 import numpy as np
 import tqdm
 import torch
+import time
 
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
@@ -327,77 +328,68 @@ if __name__ == "__main__":
 
     with open('demo/custom_coco_all.json',"r") as f:
         coco_data = json.load(f)
-    
-    image_id = 170893 #472375 #494869 #replace it with for loop later
-    img_entry = coco_data[str(image_id)]
-    file_name = img_entry["file_name"]
-    command = img_entry["command"]
-    #pdb.set_trace()
-    img_dir = 'demo/val2017/' + file_name
-    img = read_image(img_dir, format="BGR")
-    
-    #pdb.set_trace()
-    img_resized = cv2.resize(img, (480,320))
-    user_classes = [command]
-    predictions, vis_output = demo.run_on_image(img_resized, user_classes)
-    vis_output.save("check.jpg")
-    
-    predictions = predictions['sem_seg'].unsqueeze(0)
-    pooled = F.avg_pool2d(predictions, kernel_size = 8, stride= 8)
-    pooled_attn = pooled.squeeze(0).squeeze(0).cpu().numpy()
-    
-    r = 2400*100
-    #pdb.set_trace()
-    masked_attn = A_to_R(pooled_attn,r)
-    expanded_attn = expanding_mat(masked_attn,patch_size)
-    #pdb.set_trace()
-    img_resized_2 = img_resized[:, :, ::-1].copy()
-    y = transform_1(img_resized_2).unsqueeze(0).to(device)
-    #pdb.set_trace()
-    #y = y.permute(0, 1, 3, 2)
-    patches = images_to_patches(y, patch_size)
-    patches = patches.to(device)
-    output_patches3 = Unet3(patches)
-    output_patches6 = Unet6(patches)
-    output_patches12 = Unet12(patches)
-    output_images3 = patches_to_images(output_patches3, y.shape, patch_size)
-    output_images6 = patches_to_images(output_patches6, y.shape, patch_size)
-    output_images12 = patches_to_images(output_patches12, y.shape, patch_size)
-    reconstruct = torch.zeros(y.shape).to(device)
-    
-    reconstruct[0,0,expanded_attn==1] = output_images3[0,0,expanded_attn==1]
-    reconstruct[0,1,expanded_attn==1] = output_images3[0,1,expanded_attn==1]
-    reconstruct[0,2,expanded_attn==1] = output_images3[0,2,expanded_attn==1]
-    reconstruct[0,0,expanded_attn==2] = output_images6[0,0,expanded_attn==2]
-    reconstruct[0,1,expanded_attn==2] = output_images6[0,1,expanded_attn==2]
-    reconstruct[0,2,expanded_attn==2] = output_images6[0,2,expanded_attn==2]
-    reconstruct[0,0,expanded_attn==3] = output_images12[0,0,expanded_attn==3]
-    reconstruct[0,1,expanded_attn==3] = output_images12[0,1,expanded_attn==3]
-    reconstruct[0,2,expanded_attn==3] = output_images12[0,2,expanded_attn==3]
-    reconstruct[0,0,expanded_attn==4] = y[0,0,expanded_attn==4]
-    reconstruct[0,1,expanded_attn==4] = y[0,1,expanded_attn==4]
-    reconstruct[0,2,expanded_attn==4] = y[0,2,expanded_attn==4]
-    
-    # pdb.set_trace()
-    # image_pil = F2.to_pil_image(reconstruct.squeeze(0))
-    # image_pil.save("reconstructed.jpg")
-    reconstruct = reconstruct.squeeze(0)
-    pil_image = F2.to_pil_image(reconstruct)
-    pil_image.save("reconstructed.jpg")
-    # image_np = reconstruct.detach().permute(1,2,0).cpu().numpy()
-    # image_np = (image_np * 255).astype(np.uint8)
-    # image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-    
-    cv2.imwrite("reconstructed_bgr.png", image_bgr)
-    
-    #image_rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
-    #image_np.save("reconstructed.jpg")
-    
-    #This part is to visualize the pooled attention score
-#     pooled_np = pooled.detach().cpu().numpy()
-    
-#     plt.imshow(pooled_np, cmap='hot', interpolation='nearest')
-#     plt.savefig('check2.jpg')
-#     plt.close()
+        
+    image_ids = list(coco_data.keys())
+    count = 0
 
-    
+    # start_time = time.time()
+    while count < 3:
+        image_id = image_ids[count] # select from custom_coco_all.json
+        img_entry = coco_data[str(image_id)]
+        file_name = img_entry["file_name"]
+        command = img_entry["command"]
+        #pdb.set_trace()
+        img_dir = 'demo/val2017/' + file_name
+        img = read_image(img_dir, format="BGR")
+        
+        #pdb.set_trace()
+        img_resized = cv2.resize(img, (480,320))
+        user_classes = [command]
+        predictions, vis_output = demo.run_on_image(img_resized, user_classes)
+        vis_output.save(f"check_{image_id}.jpg")
+        
+        predictions = predictions['sem_seg'].unsqueeze(0)
+        pooled = F.avg_pool2d(predictions, kernel_size = 8, stride= 8)
+        pooled_attn = pooled.squeeze(0).squeeze(0).cpu().numpy()
+        
+        r = 2400*100
+        #pdb.set_trace()
+        masked_attn = A_to_R(pooled_attn,r)
+        expanded_attn = expanding_mat(masked_attn,patch_size)
+        #pdb.set_trace()
+        img_resized_2 = img_resized[:, :, ::-1].copy()
+        y = transform_1(img_resized_2).unsqueeze(0).to(device)
+        #pdb.set_trace()
+        #y = y.permute(0, 1, 3, 2)
+        patches = images_to_patches(y, patch_size)
+        patches = patches.to(device)
+        output_patches3 = Unet3(patches)
+        output_patches6 = Unet6(patches)
+        output_patches12 = Unet12(patches)
+        output_images3 = patches_to_images(output_patches3, y.shape, patch_size)
+        output_images6 = patches_to_images(output_patches6, y.shape, patch_size)
+        output_images12 = patches_to_images(output_patches12, y.shape, patch_size)
+        reconstruct = torch.zeros(y.shape).to(device)
+        
+        reconstruct[0,0,expanded_attn==1] = output_images3[0,0,expanded_attn==1]
+        reconstruct[0,1,expanded_attn==1] = output_images3[0,1,expanded_attn==1]
+        reconstruct[0,2,expanded_attn==1] = output_images3[0,2,expanded_attn==1]
+        reconstruct[0,0,expanded_attn==2] = output_images6[0,0,expanded_attn==2]
+        reconstruct[0,1,expanded_attn==2] = output_images6[0,1,expanded_attn==2]
+        reconstruct[0,2,expanded_attn==2] = output_images6[0,2,expanded_attn==2]
+        reconstruct[0,0,expanded_attn==3] = output_images12[0,0,expanded_attn==3]
+        reconstruct[0,1,expanded_attn==3] = output_images12[0,1,expanded_attn==3]
+        reconstruct[0,2,expanded_attn==3] = output_images12[0,2,expanded_attn==3]
+        reconstruct[0,0,expanded_attn==4] = y[0,0,expanded_attn==4]
+        reconstruct[0,1,expanded_attn==4] = y[0,1,expanded_attn==4]
+        reconstruct[0,2,expanded_attn==4] = y[0,2,expanded_attn==4]
+        
+        # pdb.set_trace()
+        # image_pil = F2.to_pil_image(reconstruct.squeeze(0))
+        # image_pil.save("reconstructed.jpg")
+        reconstruct = reconstruct.squeeze(0)
+        pil_image = F2.to_pil_image(reconstruct)
+        pil_image.save(f"reconstructed_{image_id}.jpg")
+        count += 1
+    # print("--- %s seconds ---" % (time.time() - start_time))
+

@@ -356,6 +356,7 @@ class MAFT_Plus_DEMO(nn.Module):
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
 
+        self.test_dataname = None  # This ensures get_text_classifier runs initialization
         text_classifier, num_templates = self.get_text_classifier('demo')
         text_classifier = torch.cat([text_classifier, F.normalize(self.void_embedding.weight, dim=-1)], dim=0)
 

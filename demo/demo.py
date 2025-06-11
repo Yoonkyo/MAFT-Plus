@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 import torch
 import tqdm
+import time
 
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
@@ -47,7 +48,7 @@ from PIL import Image
 
 from pycocotools.coco import COCO
 from ResSelectionAlg import A_to_R
-from EncoderDecoder import PatchCodecManager, images_to_patches, patches_to_images
+from EncoderDecoder import CNNEncoderDecoder, PatchCodecManager, images_to_patches, patches_to_images
 
 # Set up paths
 dataDir = "./demo/"
@@ -138,107 +139,134 @@ if __name__ == "__main__":
     demo = VisualizationDemo(cfg)
     
     # ---- Single image test ----
-    image_id = 494869
+    #image_id = 494869
     #image_id = 50145 # size [480, 320]
     json_path = os.path.join(dataDir, "custom_coco_all.json")
+
+    # Load models before the loop
+    device = "cuda"
+    patch_size = 8
+    num_channels = 3
+
+    Unet3 = CNNEncoderDecoder(input_channels=num_channels, patch_size=patch_size, encoded_size=3)
+    Unet6 = CNNEncoderDecoder(input_channels=num_channels, patch_size=patch_size, encoded_size=6)
+    Unet12 = CNNEncoderDecoder(input_channels=num_channels, patch_size=patch_size, encoded_size=12)
+
+    Unet3.load_state_dict(torch.load("demo/models/unet_3.pt"))
+    Unet6.load_state_dict(torch.load("demo/models/unet_6.pt"))
+    Unet12.load_state_dict(torch.load("demo/models/unet_12.pt"))
+
+    Unet3.to(device).eval()
+    Unet6.to(device).eval()
+    Unet12.to(device).eval()
+
+    codec = PatchCodecManager(model_dict={
+    12: Unet3,
+    24: Unet6,
+    48: Unet12
+    })
 
     # Load JSON annotations
     with open(json_path, "r") as f:
         coco_data = json.load(f)
 
     # Find the corresponding image entry
-    img_entry = coco_data[str(image_id)]
-    file_name = img_entry["file_name"]
-    command = img_entry["command"]
-#    image_size = img_entry["imagesize"] # [width, height]
-    image_path = os.path.join(imageDir, file_name)
+    image_ids = list(coco_data.keys())
+    count = 0
+    
+    # start_time = time.time()
+    while count < 3:
+        image_id = image_ids[count] # select from custom_coco_all.json
+        img_entry = coco_data[str(image_id)]
+        file_name = img_entry["file_name"]
+        command = img_entry["command"]
+    #    image_size = img_entry["imagesize"] # [width, height]
+        image_path = os.path.join(imageDir, file_name)
 
-    # Load image
-    image = read_image(image_path, format="BGR")
+        # Load image
+        image = read_image(image_path, format="BGR")
 
-    # Resize the image
-    fixed_size = [320, 480]  # [H, W]
-    image = cv2.resize(image, (fixed_size[1], fixed_size[0]))  # (480, 320)
-    image_size = [fixed_size[1], fixed_size[0]]  # [W, H] = [480, 320]
+        # Resize the image
+        fixed_size = [320, 480]  # [H, W]
+        image = cv2.resize(image, (fixed_size[1], fixed_size[0]))  # (480, 320)
+        image_size = [fixed_size[1], fixed_size[0]]  # [W, H] = [480, 320]
 
-    # Run inference and visualization
-    user_classes = [command]
-    predictions, vis_output, pooled_map = demo.run_on_image(image, user_classes, image_size=image_size)
+        # Run inference and visualization
+        user_classes = [command]
+        predictions, vis_output, pooled_map = demo.run_on_image(image, user_classes, image_size=image_size)
 
-    # Log the prediction
-    logger.info(
-        "{}: {} in {:.2f}s".format(
-            image_path,
-            "detected {} instances".format(len(predictions["instances"]))
-            if "instances" in predictions
-            else "finished",
-            0.0,  # timing optional
-        )
-    )
+        # Log the prediction
+        # logger.info(
+        #     "{}: {} in {:.2f}s".format(
+        #         image_path,
+        #         "detected {} instances".format(len(predictions["instances"]))
+        #         if "instances" in predictions
+        #         else "finished",
+        #         0.0,  # timing optional
+        #     )
+        # )
 
-    # Save or display results
-    filename = os.path.splitext(os.path.basename(image_path))[0]
-    output_path = os.path.join(args.output, f"{filename}_vis.jpg")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    vis_output.save(output_path)
-    logger.info(f"Saved visualized output to: {output_path}")
+        # Save or display results
+        filename = os.path.splitext(os.path.basename(image_path))[0]
+        #output_path = os.path.join(args.output, f"vis_{filename}.jpg")
+        #os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        #vis_output.save(output_path)
+        #logger.info(f"Saved visualized output to: {output_path}")
 
-    # Print pooled 8×8 score map
-    if pooled_map is not None:
-        print("8x8 pooled attention map:")
-        print(np.round(pooled_map, 3))
-        # Save the pooled map
-        pooled_output_path = os.path.join(args.output, f"{filename}_attn.npy")
-        np.save(pooled_output_path, pooled_map)
-        logger.info(f"Saved pooled attention map to: {pooled_output_path}")
+        # Print pooled 8×8 score map
+        if pooled_map is not None:
+            print("8x8 pooled attention map:")
+            print(np.round(pooled_map, 3))
+            # Save the pooled map
+            # pooled_output_path = os.path.join(args.output, f"{filename}_attn.npy")
+            # np.save(pooled_output_path, pooled_map)
+            # logger.info(f"Saved pooled attention map to: {pooled_output_path}")
 
-    # Select Resolution
-    r = 2400*100
-    res_map = A_to_R(pooled_map, r)
+        # Select Resolution
+        r = 2400*100
+        res_map = A_to_R(pooled_map, r)
 
-    # plt.figure(figsize=(10, 6))
-    # sns.heatmap(res_map, cmap="YlOrRd", cbar=True, linewidths=0.1, linecolor='gray',xticklabels=False, yticklabels=False, square=True)
-    # plt.title("Resolution Level Map")
-    # plt.tight_layout()
-    # plt.savefig(os.path.join(args.output, f"{filename}_resmap.png"))
-    # plt.close()
-    # logger.info(f"Saved resolution map heatmap to: {filename}_resmap.png")
+        # plt.figure(figsize=(10, 6))
+        # sns.heatmap(res_map, cmap="YlOrRd", cbar=True, linewidths=0.1, linecolor='gray',xticklabels=False, yticklabels=False, square=True)
+        # plt.title("Resolution Level Map")
+        # plt.tight_layout()
+        # plt.savefig(os.path.join(args.output, f"resmap_{filename}.png"))
+        # plt.close()
+        # logger.info(f"Saved resolution map heatmap to: resmap_{filename}.png")
 
-    codec = PatchCodecManager(patch_size=8, input_channels=3, device="cuda")
+        # Convert image to tensor format: [1, 3, H, W]
+        image_tensor = torch.from_numpy(image.transpose(2, 0, 1)).unsqueeze(0).float() / 255.0
+        image_tensor = image_tensor.to("cuda")  # or your device
 
-    # Convert image to tensor format: [1, 3, H, W]
-    image_tensor = torch.from_numpy(image.transpose(2, 0, 1)).unsqueeze(0).float() / 255.0
-    image_tensor = image_tensor.to("cuda")  # or your device
+        patches = images_to_patches(image_tensor, patch_size=8)  # [2400, 3, 8, 8]
+        decoded_patches = torch.zeros_like(patches)
 
-    patches = images_to_patches(image_tensor, patch_size=8)  # [2400, 3, 8, 8]
-    decoded_patches = torch.zeros_like(patches)
+        # Flatten res_map to match patch order
+        res_levels = res_map.flatten()
 
-    # Flatten res_map to match patch order
-    res_levels = res_map.flatten()
+        # Mapping resolution levels to encoded_size
+        res_to_bits = {1: 12, 2: 24, 3: 48, 4: 196}
+            
+        for level in [1, 2, 3, 4]:
+            bit = res_to_bits[level]
+            idxs = (res_levels == level).nonzero()[0]  # indices of patches with this level
+            if len(idxs) == 0:
+                continue
+            selected = patches[idxs]
+            decoded = codec.encode_decode(selected, encoded_size=bit)
+            decoded_patches[idxs] = decoded
 
-    # Mapping resolution levels to encoded_size
-    res_to_bits = {1: 12, 2: 24, 3: 48, 4: 196}
-        
-    for level in [1, 2, 3, 4]:
-        bit = res_to_bits[level]
-        idxs = (res_levels == level).nonzero()[0]  # indices of patches with this level
-        if len(idxs) == 0:
-            continue
-        selected = patches[idxs]
-        decoded = codec.encode_decode(selected, encoded_size=bit)
-        decoded_patches[idxs] = decoded
-
-    recon = patches_to_images(decoded_patches, image_tensor.shape, patch_size=8)
-    recon_image = (
-        recon.squeeze()
-        .clamp(0, 1)
-        .detach()             
-        .cpu()
-        .numpy()
-        .transpose(1, 2, 0) * 255
-    ).astype(np.uint8)
-    recon_path = os.path.join(args.output, f"{filename}_recon.jpg")
-#    cv2.imwrite(recon_path, cv2.cvtColor(recon_image, cv2.COLOR_RGB2BGR))
-    cv2.imwrite(recon_path, recon_image)
-    logger.info(f"Saved reconstructed image to: {recon_path}")
-
+        recon = patches_to_images(decoded_patches, image_tensor.shape, patch_size=8)
+        recon_image = (
+            recon.squeeze()
+            .clamp(0, 1)
+            .detach()             
+            .cpu()
+            .numpy()
+            .transpose(1, 2, 0) * 255
+        ).astype(np.uint8)
+        recon_path = os.path.join(args.output, f"recon_{filename}.jpg")
+        cv2.imwrite(recon_path, recon_image)
+        logger.info(f"Saved reconstructed image to: {recon_path}")
+        count += 1
+    # print("--- %s seconds ---" % (time.time() - start_time))
